@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
-import getPocketBase from "@/lib/pb";
+import getSupabase from "@/lib/supabase";
 import type { Comment, User } from "@/types";
 
 interface CommentSectionProps {
@@ -16,9 +16,9 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [commentLikes, setCommentLikes] = useState<Record<string, { count: number; isLiked: boolean; likeId?: string }>>({});
+  const [commentLikes, setCommentLikes] = useState<Record<string, { count: number; isLiked: boolean }>>({});
   const { isLoggedIn, user, isAdmin } = useAuth();
-  const pb = getPocketBase();
+  const supabase = getSupabase();
 
   // Helper: Build threaded comments tree
   const buildTree = useCallback((flatList: Comment[]): Comment[] => {
@@ -42,69 +42,51 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
 
     // Sort replies by creation date (oldest first)
     Object.values(commentMap).forEach((mapped) => {
-      mapped.replies.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime());
+      mapped.replies.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     });
 
     // Sort roots by creation date (newest first)
-    return roots.sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+    return roots.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, []);
 
   // Fetch comments
   const fetchComments = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch all comments for this question and expand user_id relation
-      const records = await pb.collection("comments").getFullList({
-        filter: `question_id="${questionId}"`,
-        expand: "user_id",
-        sort: "+created",
-      });
+      // Fetch all comments for this question with user profile join
+      const { data: records, error } = await supabase
+        .from("comments")
+        .select("*, user:profiles!user_id(*)")
+        .eq("question_id", questionId)
+        .order("created_at", { ascending: true });
 
-      const parsedComments = records.map((record) => ({
+      if (error) throw error;
+
+      const parsedComments = (records || []).map((record: any) => ({
         id: record.id,
         question_id: record.question_id,
         user_id: record.user_id,
         parent_id: record.parent_id || null,
         content: record.content,
-        created: record.created,
-        updated: record.updated,
-        collectionId: record.collectionId,
-        collectionName: record.collectionName,
-        expand: record.expand
-          ? {
-              user_id: record.expand.user_id
-                ? {
-                    id: record.expand.user_id.id,
-                    email: record.expand.user_id.email,
-                    username: record.expand.user_id.username,
-                    name: record.expand.user_id.name,
-                    avatar: record.expand.user_id.avatar,
-                    role: record.expand.user_id.role,
-                    verified: record.expand.user_id.verified,
-                    created: record.expand.user_id.created,
-                    updated: record.expand.user_id.updated,
-                    collectionId: record.expand.user_id.collectionId,
-                    collectionName: record.expand.user_id.collectionName,
-                  }
-                : undefined,
-            }
-          : undefined,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+        user: record.user || undefined,
       })) as Comment[];
 
       const tree = buildTree(parsedComments);
       setComments(tree);
 
-      // Fetch comment likes (scoped to this question's comments only)
-      let userLikes: Record<string, { count: number; isLiked: boolean; likeId?: string }> = {};
-      try {
-        const commentIds = records.map((r) => r.id);
-        const likesFilter = commentIds.length > 0
-          ? `target_type="comment" && (${commentIds.map((id) => `target_id="${id}"`).join(" || ")})`
-          : `target_type="comment" && target_id="__none__"`;
-        const likesList = await pb.collection("likes").getFullList({
-          filter: likesFilter,
-        });
-        likesList.forEach((like) => {
+      // Fetch comment likes
+      const commentIds = (records || []).map((r: any) => r.id);
+      if (commentIds.length > 0) {
+        const { data: likesList } = await supabase
+          .from("likes")
+          .select("*")
+          .eq("target_type", "comment")
+          .in("target_id", commentIds);
+
+        const userLikes: Record<string, { count: number; isLiked: boolean }> = {};
+        (likesList || []).forEach((like: any) => {
           const cid = like.target_id;
           if (!userLikes[cid]) {
             userLikes[cid] = { count: 0, isLiked: false };
@@ -112,19 +94,16 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
           userLikes[cid].count += 1;
           if (user && like.user_id === user.id) {
             userLikes[cid].isLiked = true;
-            userLikes[cid].likeId = like.id;
           }
         });
-      } catch (e) {
-        console.error("Failed to fetch comment likes:", e);
+        setCommentLikes(userLikes);
       }
-      setCommentLikes(userLikes);
     } catch (e) {
       console.error("Failed to fetch comments:", e);
     } finally {
       setLoading(false);
     }
-  }, [questionId, pb, buildTree, user]);
+  }, [questionId, supabase, buildTree, user]);
 
   useEffect(() => {
     fetchComments();
@@ -137,14 +116,14 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
 
     setSubmitting(true);
     try {
-      const record = await pb.collection("comments").create({
+      const { error } = await supabase.from("comments").insert({
         question_id: questionId,
         user_id: user.id,
         content: newCommentText.trim(),
         parent_id: null,
       });
+      if (error) throw error;
 
-      // Fetch updated list to ensure expand is loaded correctly
       await fetchComments();
       setNewCommentText("");
     } catch (e) {
@@ -161,14 +140,14 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
 
     setSubmitting(true);
     try {
-      await pb.collection("comments").create({
+      const { error } = await supabase.from("comments").insert({
         question_id: questionId,
         user_id: user.id,
         content: text.trim(),
         parent_id: parentId,
       });
+      if (error) throw error;
 
-      // Fetch updated list
       await fetchComments();
       setReplyTexts((prev) => ({ ...prev, [parentId]: "" }));
       setReplyingToId(null);
@@ -183,7 +162,8 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
   const handleDeleteComment = async (commentId: string) => {
     if (!window.confirm("هل أنت متأكد من رغبتك في حذف هذا التعليق؟")) return;
     try {
-      await pb.collection("comments").delete(commentId);
+      const { error } = await supabase.from("comments").delete().eq("id", commentId);
+      if (error) throw error;
       await fetchComments();
     } catch (e) {
       console.error("Failed to delete comment:", e);
@@ -193,32 +173,23 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
   // Handle liking a comment
   const handleLikeComment = async (commentId: string) => {
     if (!isLoggedIn || !user) return;
-    const current = commentLikes[commentId] || { count: 0, isLiked: false };
     try {
-      if (current.isLiked) {
-        if (current.likeId) {
-          await pb.collection("likes").delete(current.likeId);
-          setCommentLikes((prev) => ({
-            ...prev,
-            [commentId]: {
-              count: Math.max(0, current.count - 1),
-              isLiked: false,
-            },
-          }));
-        }
-      } else {
-        const newLike = await pb.collection("likes").create({
-          user_id: user.id,
-          target_type: "comment",
-          target_id: commentId,
-        });
+      const { data, error } = await supabase.rpc("toggle_like", {
+        p_target_type: "comment",
+        p_target_id: commentId,
+      });
+      if (error) throw error;
+
+      const current = commentLikes[commentId] || { count: 0, isLiked: false };
+      if (data?.action === "liked") {
         setCommentLikes((prev) => ({
           ...prev,
-          [commentId]: {
-            count: current.count + 1,
-            isLiked: true,
-            likeId: newLike.id,
-          },
+          [commentId]: { count: current.count + 1, isLiked: true },
+        }));
+      } else {
+        setCommentLikes((prev) => ({
+          ...prev,
+          [commentId]: { count: Math.max(0, current.count - 1), isLiked: false },
         }));
       }
     } catch (e) {
@@ -227,13 +198,13 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
   };
 
   const getAvatarUrl = (author?: User) => {
-    if (!author || !author.avatar) return "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y";
-    return pb.files.getUrl(author, author.avatar);
+    if (!author || !author.avatar_url) return "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y";
+    return author.avatar_url;
   };
 
   // Render recursive comment component
   const CommentNode = ({ comment, depth = 0 }: { comment: Comment; depth: number }) => {
-    const author = comment.expand?.user_id;
+    const author = comment.user;
     const isOwner = user?.id === comment.user_id || isAdmin;
     const isReplying = replyingToId === comment.id;
 
@@ -267,7 +238,7 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
                 </span>
               )}
               <span className="text-xs text-slate-400 dark:text-slate-500">
-                {new Date(comment.created).toLocaleDateString("ar-EG", {
+                {new Date(comment.created_at).toLocaleDateString("ar-EG", {
                   year: "numeric",
                   month: "short",
                   day: "numeric",

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { askGemini, getGeminiKey, setGeminiKey } from "@/lib/gemini";
 import { useAuth } from "@/context/AuthContext";
-import getPocketBase from "@/lib/pb";
+import getSupabase from "@/lib/supabase";
 
 export default function AskPage() {
   const [question, setQuestion] = useState("");
@@ -18,7 +18,7 @@ export default function AskPage() {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const answerRef = useRef<HTMLDivElement>(null);
   const { isLoggedIn, user } = useAuth();
-  const pb = getPocketBase();
+  const supabase = getSupabase();
 
   // Auto-populate API Key if signed in with Google
   useEffect(() => {
@@ -64,13 +64,14 @@ export default function AskPage() {
   const handleSaveToSuggestions = async () => {
     if (!isLoggedIn || !user || !answer) return;
     try {
-      await pb.collection("suggestions").create({
+      const { error } = await supabase.from("suggestions").insert({
         user_id: user.id,
         title: question.slice(0, 100),
         body: answer,
         topic: topic || "Other",
         status: "pending",
       });
+      if (error) throw error;
       setSaved(true);
     } catch (e) {
       console.error("Save error:", e);

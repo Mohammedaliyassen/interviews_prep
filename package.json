@@ -12,6 +12,7 @@
     "seed": "curl -X POST http://localhost:3000/api/seed -H \"x-admin-secret: change-me-to-any-secret\""
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.1",
     "next": "16.2.6",
     "pocketbase": "^0.27.0",
     "react": "19.2.4",

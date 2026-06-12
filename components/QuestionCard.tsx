@@ -5,7 +5,7 @@ import type { Question } from "@/types";
 import { TopicBadge, DifficultyBadge, RepeatBadge } from "@/components/ui";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, usePathname } from "next/navigation";
-import getPocketBase from "@/lib/pb";
+import getSupabase from "@/lib/supabase";
 
 // ─── Custom Premium Multi-Language Code Highlighter ─────────────────────────
 function highlightCode(code: string, topic: string) {
@@ -193,7 +193,7 @@ function ActionRow({
   onFavorite,
   isLoggedIn,
   user,
-  pb,
+  supabase,
   commentCount,
 }: {
   question: Question;
@@ -204,7 +204,7 @@ function ActionRow({
   onFavorite: () => void;
   isLoggedIn: boolean;
   user: any;
-  pb: any;
+  supabase: any;
   commentCount: number;
 }) {
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
@@ -226,13 +226,14 @@ function ActionRow({
     }
     setSharing(true);
     try {
-      await pb.collection("suggestions").create({
+      const { error } = await supabase.from("suggestions").insert({
         user_id: user.id,
         title: `مناقشة سؤال: ${question.english.slice(0, 70)}`,
         body: `أود مشاركة هذا سؤال معكم لمناقشة الفكرة وتبادل الآراء:\n\n**السؤال بالإنجليزية:** ${question.english}\n**السؤال بالعربية:** ${question.arabic}\n\n[اضغط هنا لعرض السؤال بالكامل والتحليل الأكاديمي](${window.location.origin}/questions/${question.id})`,
         topic: question.topic || "Other",
         status: "approved", // Automatically approved for verified library shares
       });
+      if (error) throw error;
       setShareStatus("shared");
       setTimeout(() => setShareStatus("idle"), 3000);
     } catch (e) {
@@ -349,7 +350,7 @@ export default function QuestionCard({ question }: QuestionCardProps) {
   const [isFavorited, setIsFavorited] = useState(question.is_favorited || false);
   const [commentCount, setCommentCount] = useState(0);
   const { isLoggedIn, user, isAdmin } = useAuth();
-  const pb = getPocketBase();
+  const supabase = getSupabase();
 
   // Synchronize state when the question prop changes (for batch-loaded parent states)
   useEffect(() => {
@@ -362,65 +363,54 @@ export default function QuestionCard({ question }: QuestionCardProps) {
   const handleLike = useCallback(async () => {
     if (!isLoggedIn || !user) return;
     try {
-      if (isLiked) {
-        const records = await pb.collection("likes").getList(1, 1, {
-          filter: `user_id="${user.id}" && target_type="question" && target_id="${question.id}"`,
-        });
-        if (records.items[0]) {
-          await pb.collection("likes").delete(records.items[0].id);
-          setIsLiked(false);
-          setLikeCount((c) => Math.max(0, c - 1));
-        }
-      } else {
-        await pb.collection("likes").create({
-          user_id: user.id,
-          target_type: "question",
-          target_id: question.id,
-        });
+      const { data, error } = await supabase.rpc("toggle_like", {
+        p_target_type: "question",
+        p_target_id: question.id,
+      });
+      if (error) throw error;
+      if (data?.action === "liked") {
         setIsLiked(true);
         setLikeCount((c) => c + 1);
+      } else {
+        setIsLiked(false);
+        setLikeCount((c) => Math.max(0, c - 1));
       }
     } catch (e) {
       console.error("Like error:", e);
     }
-  }, [isLoggedIn, isLiked, question.id, user, pb]);
+  }, [isLoggedIn, question.id, user, supabase]);
 
   const handleFavorite = useCallback(async () => {
     if (!isLoggedIn || !user) return;
     try {
-      if (isFavorited) {
-        const records = await pb.collection("favorites").getList(1, 1, {
-          filter: `user_id="${user.id}" && question_id="${question.id}"`,
-        });
-        if (records.items[0]) {
-          await pb.collection("favorites").delete(records.items[0].id);
-          setIsFavorited(false);
-        }
-      } else {
-        await pb.collection("favorites").create({
-          user_id: user.id,
-          question_id: question.id,
-        });
+      const { data, error } = await supabase.rpc("toggle_favorite", {
+        p_question_id: question.id,
+      });
+      if (error) throw error;
+      if (data?.action === "favorited") {
         setIsFavorited(true);
+      } else {
+        setIsFavorited(false);
       }
     } catch (e) {
       console.error("Favorite error:", e);
     }
-  }, [isLoggedIn, isFavorited, question.id, user, pb]);
+  }, [isLoggedIn, question.id, user, supabase]);
 
   const handleAdminDelete = useCallback(async () => {
     if (!isAdmin) return;
     const confirmDelete = window.confirm("⚠️ هل أنت متأكد من حذف هذا السؤال بالكامل ونهائياً؟");
     if (!confirmDelete) return;
     try {
-      await pb.collection("questions").delete(question.id);
+      const { error } = await supabase.from("questions").delete().eq("id", question.id);
+      if (error) throw error;
       alert("🎉 تم حذف السؤال بنجاح!");
       window.location.reload(); // Refresh the page to update lists
     } catch (e) {
       console.error("Delete error:", e);
       alert("❌ فشل حذف السؤال. حاول مجدداً.");
     }
-  }, [isAdmin, question.id, pb]);
+  }, [isAdmin, question.id, supabase]);
 
   // Stylized fire badge for repeat counts to match image exactly
   const renderRepeatBadge = () => {
@@ -560,7 +550,7 @@ export default function QuestionCard({ question }: QuestionCardProps) {
           onFavorite={handleFavorite}
           isLoggedIn={isLoggedIn}
           user={user}
-          pb={pb}
+          supabase={supabase}
           commentCount={commentCount}
         />
       </div>

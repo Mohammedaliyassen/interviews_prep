@@ -132,9 +132,9 @@ export default function Navbar() {
                   onClick={() => setAuthOpen(!authOpen)}
                   className="flex items-center gap-2 p-1 rounded-full hover:ring-2 hover:ring-blue-400 transition-all"
                 >
-                  {user?.avatar ? (
+                  {user?.avatar_url ? (
                     <img
-                      src={`${process.env.NEXT_PUBLIC_POCKETBASE_URL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}`}
+                      src={user.avatar_url}
                       alt={user.name || user.username}
                       className="w-8 h-8 rounded-full object-cover"
                     />

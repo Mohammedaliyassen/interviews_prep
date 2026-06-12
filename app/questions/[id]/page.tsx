@@ -2,61 +2,78 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import getPocketBase from "@/lib/pb";
+import getSupabase from "@/lib/supabase";
 import QuestionCard from "@/components/QuestionCard";
 import CommentSection from "@/components/CommentSection";
 import type { Question } from "@/types";
+import { useAuth } from "@/context/AuthContext";
 
 export default function QuestionDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params?.id as string;
+  const { user } = useAuth();
 
   const [question, setQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
-  const pb = getPocketBase();
+  const supabase = getSupabase();
 
   const fetchQuestion = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
       // Get the question
-      const record = await pb.collection("questions").getOne<Question>(id);
+      const { data: record, error } = await supabase
+        .from("questions")
+        .select("*")
+        .eq("id", id)
+        .single();
       
-      // Get computed like count
-      const likesResult = await pb.collection("likes").getList(1, 1, {
-        filter: `target_type="question" && target_id="${id}"`,
-      });
-      record.like_count = likesResult.totalItems;
+      if (error) throw error;
 
-      // Get computed comments count
-      const commentsResult = await pb.collection("comments").getList(1, 1, {
-        filter: `question_id="${id}"`,
-      });
-      record.comment_count = commentsResult.totalItems;
+      // Get like count
+      const { count: likeCount } = await supabase
+        .from("likes")
+        .select("*", { count: "exact", head: true })
+        .eq("target_type", "question")
+        .eq("target_id", id);
+      record.like_count = likeCount || 0;
 
-      // Get computed favorite state and like state for current user
-      if (pb.authStore.isValid && pb.authStore.model) {
-        const userId = pb.authStore.model.id;
-        
-        const userLike = await pb.collection("likes").getList(1, 1, {
-          filter: `user_id="${userId}" && target_type="question" && target_id="${id}"`,
-        });
-        record.is_liked = userLike.totalItems > 0;
+      // Get comments count
+      const { count: commentCount } = await supabase
+        .from("comments")
+        .select("*", { count: "exact", head: true })
+        .eq("question_id", id);
+      record.comment_count = commentCount || 0;
 
-        const userFav = await pb.collection("favorites").getList(1, 1, {
-          filter: `user_id="${userId}" && question_id="${id}"`,
-        });
-        record.is_favorited = userFav.totalItems > 0;
+      // Get user's like/favorite state
+      if (user) {
+        const [userLike, userFav] = await Promise.all([
+          supabase
+            .from("likes")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("target_type", "question")
+            .eq("target_id", id)
+            .maybeSingle(),
+          supabase
+            .from("favorites")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("question_id", id)
+            .maybeSingle(),
+        ]);
+        record.is_liked = !!userLike.data;
+        record.is_favorited = !!userFav.data;
       }
 
-      setQuestion(record);
+      setQuestion(record as Question);
     } catch (e) {
       console.error("Error loading question details:", e);
     } finally {
       setLoading(false);
     }
-  }, [id, pb]);
+  }, [id, supabase, user]);
 
   useEffect(() => {
     fetchQuestion();
@@ -108,7 +125,6 @@ export default function QuestionDetailPage() {
             box-shadow: none !important;
             border: none !important;
           }
-          /* Ensure accordions are open on print */
           .accordion-closed {
             height: auto !important;
             opacity: 1 !important;
@@ -137,12 +153,10 @@ export default function QuestionDetailPage() {
 
       {/* Main content container */}
       <div className="space-y-8 print-container">
-        {/* Render fully detailed question card */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
           <QuestionCard question={question} />
         </div>
 
-        {/* Community comment section (no-print) */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm no-print">
           <CommentSection questionId={question.id} />
         </div>

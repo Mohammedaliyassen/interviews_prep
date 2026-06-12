@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import getPocketBase from "@/lib/pb";
+import getSupabase from "@/lib/supabase";
 import QuestionCard from "@/components/QuestionCard";
 import { FilterTabs, SearchBar } from "@/components/ui";
 import type { Question, Topic } from "@/types";
@@ -23,7 +23,7 @@ export default function HomePage() {
   const [totalItems, setTotalItems] = useState(0);
   const [counts, setCounts] = useState<Record<string, number>>({});
 
-  const pb = getPocketBase();
+  const supabase = getSupabase();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounce search
@@ -40,66 +40,85 @@ export default function HomePage() {
   const fetchQuestions = useCallback(async () => {
     setLoading(true);
     try {
-      const filterParts: string[] = [];
+      const from = (page - 1) * PER_PAGE;
+      const to = from + PER_PAGE - 1;
 
+      let query = supabase
+        .from("questions")
+        .select("*", { count: "exact" });
+
+      // Apply topic filter
       if (topic !== "All") {
-        filterParts.push(`topic="${topic}"`);
+        query = query.eq("topic", topic);
       }
 
+      // Apply search filter
       if (debouncedSearch.trim()) {
-        const s = debouncedSearch.trim().replace(/"/g, "");
-        filterParts.push(`(english~"${s}" || arabic~"${s}" || tags~"${s}")`);
+        const s = debouncedSearch.trim();
+        query = query.or(`english.ilike.%${s}%,arabic.ilike.%${s}%,tags.cs.{${s}}`);
       }
 
-      const filter = filterParts.join(" && ");
-      
-      let sort = "-repeat_count,-created";
+      // Apply sort
       if (sortBy === "latest") {
-        sort = "-created";
+        query = query.order("created_at", { ascending: false });
       } else if (sortBy === "oldest") {
-        sort = "+created";
+        query = query.order("created_at", { ascending: true });
+      } else {
+        query = query.order("repeat_count", { ascending: false }).order("created_at", { ascending: false });
       }
 
-      const result = await pb.collection("questions").getList<Question>(page, PER_PAGE, {
-        filter,
-        sort,
-      });
+      // Apply pagination
+      query = query.range(from, to);
 
-      const questionIds = result.items.map((q) => q.id);
+      const { data: questionsData, count, error } = await query;
 
-      if (questionIds.length > 0) {
-        // 1. Fetch likes count for these questions (scoped to current page only)
-        const likesFilter = questionIds.map((id) => `target_id="${id}"`).join(" || ");
-        const likesRes = await pb.collection("likes").getFullList({
-          filter: `target_type="question" && (${likesFilter})`,
-        });
+      if (error) throw error;
 
-        // 2. Fetch comments count for these questions
-        const commentsRes = await pb.collection("comments").getFullList({
-          filter: questionIds.map((id) => `question_id="${id}"`).join(" || "),
-        });
+      const items = (questionsData || []) as Question[];
+      const total = count || 0;
 
-        // 3. Fetch user's likes and favorites if logged in
-        let userLikedIds: string[] = [];
-        let userFavIds: string[] = [];
-        if (pb.authStore.isValid && pb.authStore.model) {
-          const userId = pb.authStore.model.id;
-          const [likes, favs] = await Promise.all([
-            pb.collection("likes").getFullList({
-              filter: `user_id="${userId}" && target_type="question"`,
-            }),
-            pb.collection("favorites").getFullList({
-              filter: `user_id="${userId}"`,
-            }),
-          ]);
-          userLikedIds = likes.map((l) => l.target_id);
-          userFavIds = favs.map((f) => f.question_id);
-        }
+      if (items.length > 0) {
+        const questionIds = items.map((q) => q.id);
+
+        // Fetch likes count, comments count, and user's interactions in parallel
+        const [likesRes, commentsRes, userLikesRes, userFavsRes] = await Promise.all([
+          // 1. Likes count per question
+          supabase
+            .from("likes")
+            .select("target_id")
+            .eq("target_type", "question")
+            .in("target_id", questionIds),
+          // 2. Comments count per question
+          supabase
+            .from("comments")
+            .select("question_id")
+            .in("question_id", questionIds),
+          // 3. User's likes (if logged in)
+          user
+            ? supabase
+                .from("likes")
+                .select("target_id")
+                .eq("user_id", user.id)
+                .eq("target_type", "question")
+                .in("target_id", questionIds)
+            : Promise.resolve({ data: [] }),
+          // 4. User's favorites (if logged in)
+          user
+            ? supabase
+                .from("favorites")
+                .select("question_id")
+                .eq("user_id", user.id)
+                .in("question_id", questionIds)
+            : Promise.resolve({ data: [] }),
+        ]);
+
+        const userLikedIds = (userLikesRes.data || []).map((l: any) => l.target_id);
+        const userFavIds = (userFavsRes.data || []).map((f: any) => f.question_id);
 
         // Map everything
-        const mappedQuestions = result.items.map((q) => {
-          const qLikes = likesRes.filter((l) => l.target_id === q.id);
-          const qComments = commentsRes.filter((c) => c.question_id === q.id);
+        const mappedQuestions = items.map((q) => {
+          const qLikes = (likesRes.data || []).filter((l: any) => l.target_id === q.id);
+          const qComments = (commentsRes.data || []).filter((c: any) => c.question_id === q.id);
           return {
             ...q,
             like_count: qLikes.length,
@@ -114,36 +133,19 @@ export default function HomePage() {
         setQuestions([]);
       }
 
-      setTotalPages(result.totalPages);
-      setTotalItems(result.totalItems);
+      setTotalPages(Math.ceil(total / PER_PAGE));
+      setTotalItems(total);
     } catch (e) {
       console.error("Fetch error:", e);
     } finally {
       setLoading(false);
     }
-  }, [topic, debouncedSearch, page, pb, sortBy, isLoggedIn, user]);
+  }, [topic, debouncedSearch, page, supabase, sortBy, isLoggedIn, user]);
 
-  const fetchCounts = async function () {
-      try {
-        const allCount = await pb.collection("questions").getList(1, 1);
-        const newCounts: Record<string, number> = { All: allCount.totalItems };
-
-        await Promise.all(
-          ["JavaScript", "ReactJS", "HTML", "CSS", "Networking & Databases"].map(async (t) => {
-            const r = await pb.collection("questions").getList(1, 1, { filter: `topic="${t}"` });
-            newCounts[t] = r.totalItems;
-          })
-        );
-        setCounts(newCounts);
-      } catch (e) {
-        // Silent fail
-      }
-    }
   useEffect(() => { 
     const loadData = async () => {
     try{
      await fetchQuestions();
-    //  await fetchCounts();
     }catch (err) {
       console.error(err);
     }

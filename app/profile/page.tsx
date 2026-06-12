@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import getPocketBase from "@/lib/pb";
+import getSupabase from "@/lib/supabase";
 import type { Question, Comment, Suggestion } from "@/types";
 import QuestionCard from "@/components/QuestionCard";
 import { useRouter } from "next/navigation";
@@ -12,7 +12,7 @@ type Tab = "favorites" | "comments" | "suggestions";
 export default function ProfilePage() {
   const { isLoggedIn, user, isLoading } = useAuth();
   const router = useRouter();
-  const pb = getPocketBase();
+  const supabase = getSupabase();
 
   const [tab, setTab] = useState<Tab>("favorites");
   const [favorites, setFavorites] = useState<Question[]>([]);
@@ -36,40 +36,39 @@ export default function ProfilePage() {
     setLoading(true);
     try {
       if (t === "favorites") {
-        const result = await pb.collection("favorites").getList(1, 50, {
-          filter: `user_id="${user.id}"`,
-          expand: "question_id",
-        });
-        const favQuestions = result.items.map((f) => f.expand?.question_id).filter(Boolean) as Question[];
+        // Fetch favorites with joined questions
+        const { data: favData, error } = await supabase
+          .from("favorites")
+          .select("*, question:questions!question_id(*)")
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+
+        const favQuestions = (favData || [])
+          .map((f: any) => f.question)
+          .filter(Boolean) as Question[];
 
         if (favQuestions.length > 0) {
           const favQIds = favQuestions.map((q) => q.id);
 
-          // 1. Fetch likes count
-          const likesRes = await pb.collection("likes").getFullList({
-            filter: `target_type="question"`,
-          });
+          // Fetch likes and comments counts in parallel
+          const [likesRes, commentsRes, userLikesRes] = await Promise.all([
+            supabase.from("likes").select("target_id").eq("target_type", "question").in("target_id", favQIds),
+            supabase.from("comments").select("question_id").in("question_id", favQIds),
+            supabase.from("likes").select("target_id").eq("user_id", user.id).eq("target_type", "question").in("target_id", favQIds),
+          ]);
 
-          // 2. Fetch comments count
-          const commentsRes = await pb.collection("comments").getFullList({
-            filter: favQIds.map((id) => `question_id="${id}"`).join(" || "),
-          });
-
-          // 3. Fetch user liked status
-          const userLikes = await pb.collection("likes").getFullList({
-            filter: `user_id="${user.id}" && target_type="question"`,
-          });
-          const userLikedIds = userLikes.map((l) => l.target_id);
+          const userLikedIds = (userLikesRes.data || []).map((l: any) => l.target_id);
 
           const mappedFavs = favQuestions.map((q) => {
-            const qLikes = likesRes.filter((l) => l.target_id === q.id);
-            const qComments = commentsRes.filter((c) => c.question_id === q.id);
+            const qLikes = (likesRes.data || []).filter((l: any) => l.target_id === q.id);
+            const qComments = (commentsRes.data || []).filter((c: any) => c.question_id === q.id);
             return {
               ...q,
               like_count: qLikes.length,
               comment_count: qComments.length,
               is_liked: userLikedIds.includes(q.id),
-              is_favorited: true, // Guaranteed since it is fetched from favorites collection
+              is_favorited: true,
             };
           });
           setFavorites(mappedFavs);
@@ -77,18 +76,25 @@ export default function ProfilePage() {
           setFavorites([]);
         }
       } else if (t === "comments") {
-        const result = await pb.collection("comments").getList<Comment>(1, 50, {
-          filter: `user_id="${user.id}"`,
-          sort: "-created",
-          expand: "question_id",
-        });
-        setComments(result.items);
+        const { data, error } = await supabase
+          .from("comments")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        if (error) throw error;
+        setComments((data || []) as Comment[]);
       } else {
-        const result = await pb.collection("suggestions").getList<Suggestion>(1, 50, {
-          filter: `user_id="${user.id}"`,
-          sort: "-created",
-        });
-        setSuggestions(result.items);
+        const { data, error } = await supabase
+          .from("suggestions")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        if (error) throw error;
+        setSuggestions((data || []) as Suggestion[]);
       }
     } catch (e) {
       console.error(e);
@@ -103,7 +109,7 @@ export default function ProfilePage() {
 
   if (!isLoggedIn || !user) return null;
 
-  const joinDate = new Date(user.created).toLocaleDateString("ar-EG", {
+  const joinDate = new Date(user.created_at).toLocaleDateString("ar-EG", {
     year: "numeric", month: "long", day: "numeric",
   });
 
@@ -118,9 +124,9 @@ export default function ProfilePage() {
       {/* Profile header */}
       <div className="card p-6 mb-6 flex items-center gap-5">
         <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-2xl font-bold shrink-0">
-          {user.avatar ? (
+          {user.avatar_url ? (
             <img
-              src={`${process.env.NEXT_PUBLIC_POCKETBASE_URL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}`}
+              src={user.avatar_url}
               alt={user.name}
               className="w-full h-full rounded-full object-cover"
             />
@@ -192,7 +198,7 @@ export default function ProfilePage() {
                   <div key={c.id} className="card p-4">
                     <p className="text-sm text-slate-700 dark:text-slate-300 font-arabic">{c.content}</p>
                     <p className="text-xs text-slate-400 mt-2">
-                      {new Date(c.created).toLocaleDateString("ar-EG")}
+                      {new Date(c.created_at).toLocaleDateString("ar-EG")}
                     </p>
                   </div>
                 ))}

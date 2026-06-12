@@ -1,13 +1,11 @@
 // types/index.ts
-// TypeScript interfaces matching PocketBase collection schemas
+// TypeScript interfaces matching Supabase table schemas
 
-// ─── Base PocketBase record fields ───────────────────────────────────────────
-export interface PBRecord {
+// ─── Base record fields (Supabase uses created_at/updated_at) ────────────────
+export interface BaseRecord {
   id: string;
-  created: string;
-  updated: string;
-  collectionId: string;
-  collectionName: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Questions ────────────────────────────────────────────────────────────────
@@ -19,7 +17,7 @@ export interface QuestionSource {
   url: string;
 }
 
-export interface Question extends PBRecord {
+export interface Question extends BaseRecord {
   topic: Topic;
   english: string;
   arabic: string;
@@ -39,29 +37,28 @@ export interface Question extends PBRecord {
   comment_count?: number;
 }
 
-// ─── Users (PocketBase auth) ─────────────────────────────────────────────────
+// ─── Users / Profiles ────────────────────────────────────────────────────────
 export type UserRole = "user" | "admin";
 
-export interface User extends PBRecord {
+export interface User {
+  id: string;
   email: string;
   username: string;
   name: string;
-  avatar: string;
+  avatar_url: string;
   role: UserRole;
-  verified: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Comments ────────────────────────────────────────────────────────────────
-export interface Comment extends PBRecord {
+export interface Comment extends BaseRecord {
   question_id: string;
   user_id: string;
   parent_id: string | null;
   content: string;
-  // Expanded relations
-  expand?: {
-    user_id?: User;
-    parent_id?: Comment;
-  };
+  // Joined user profile
+  user?: User;
   // Computed
   like_count?: number;
   is_liked?: boolean;
@@ -69,37 +66,34 @@ export interface Comment extends PBRecord {
 }
 
 // ─── Likes ────────────────────────────────────────────────────────────────────
-export type LikeTargetType = "question" | "comment" | "suggestion";
+export type LikeTargetType = "question" | "comment" | "suggestion" | "suggestion_reply";
 
-export interface Like extends PBRecord {
+export interface Like extends BaseRecord {
   user_id: string;
   target_type: LikeTargetType;
   target_id: string;
 }
 
 // ─── Favorites ────────────────────────────────────────────────────────────────
-export interface Favorite extends PBRecord {
+export interface Favorite extends BaseRecord {
   user_id: string;
   question_id: string;
-  expand?: {
-    question_id?: Question;
-  };
+  question?: Question;
 }
 
 // ─── Suggestions ─────────────────────────────────────────────────────────────
 export type SuggestionStatus = "pending" | "approved" | "rejected" | "pinned";
 export type SuggestionTopic = Topic | "Other";
 
-export interface Suggestion extends PBRecord {
+export interface Suggestion extends BaseRecord {
   user_id: string;
   title: string;
   body: string;
   topic: SuggestionTopic;
   status: SuggestionStatus;
   is_added_to_library: boolean;
-  expand?: {
-    user_id?: User;
-  };
+  // Joined user profile
+  user?: User;
   // Computed
   like_count?: number;
   is_liked?: boolean;
@@ -108,14 +102,13 @@ export interface Suggestion extends PBRecord {
 }
 
 // ─── Suggestion Replies ───────────────────────────────────────────────────────
-export interface SuggestionReply extends PBRecord {
+export interface SuggestionReply extends BaseRecord {
   suggestion_id: string;
   user_id: string;
   content: string;
   is_pinned: boolean;
-  expand?: {
-    user_id?: User;
-  };
+  // Joined user profile
+  user?: User;
 }
 
 // ─── UI State ────────────────────────────────────────────────────────────────

@@ -2,10 +2,9 @@
 
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
-import getPocketBase from "@/lib/pb";
+import getSupabase from "@/lib/supabase";
 import type { Suggestion, SuggestionReply } from "@/types";
 import { TopicBadge } from "@/components/ui";
-import { count } from "console";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending:  { label: "قيد المراجعة", color: "bg-yellow-100 text-yellow-800 border-yellow-300" },
@@ -16,7 +15,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 
 export default function SuggestPage() {
   const { isLoggedIn, user, isAdmin } = useAuth();
-  const pb = getPocketBase();
+  const supabase = getSupabase();
 
   // ── Submit form ─────────────────────────────────────────────────────────────
   const [title, setTitle] = useState("");
@@ -32,113 +31,91 @@ export default function SuggestPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [replies, setReplies] = useState<Record<string, SuggestionReply[]>>({});
   const [replyText, setReplyText] = useState<Record<string, string>>({});
-  const [suggestionLikes, setSuggestionLikes] = useState<Record<string, { count: number; isLiked: boolean; likeId?: string }>>({});
-  const [replyLikes, setReplyLikes] = useState<Record<string, { count: number; isLiked: boolean; likeId?: string }>>({});
+  const [suggestionLikes, setSuggestionLikes] = useState<Record<string, { count: number; isLiked: boolean }>>({});
+  const [replyLikes, setReplyLikes] = useState<Record<string, { count: number; isLiked: boolean }>>({});
   const [replyCounts, setReplyCounts] = useState<Record<string, number>>({});
 
   const fetchFeed = async (signal?: AbortSignal) => {
     setLoadingFeed(true);
     try {
-      const sort = "-created";
-      const result = await pb.collection("suggestions").getList<Suggestion>(1, 30, {
-        sort,
-        signal: signal,
-        expand: "user_id",
-      });
+      const { data: items, error } = await supabase
+        .from("suggestions")
+        .select("*, user:profiles!user_id(*)")
+        .order("created_at", { ascending: false })
+        .limit(30)
+        .abortSignal(signal!);
 
-      // Fetch suggestion likes (scoped to current page suggestions)
-      const suggestionIds = result.items.map((s) => s.id);
-      const likesFilter = suggestionIds.length > 0
-        ? `target_type="suggestion" && (${suggestionIds.map((id) => `target_id="${id}"`).join(" || ")})`
-        : `target_type="suggestion" && target_id="__none__"`;
-      const likesList = await pb.collection("likes").getFullList({
-        filter: likesFilter,
-        signal: signal,
-      });
-      const suggLikes: Record<string, { count: number; isLiked: boolean; likeId?: string }> = {};
-      likesList.forEach((like) => {
+      if (error) throw error;
+
+      const suggestionIds = (items || []).map((s: any) => s.id);
+
+      // Fetch suggestion likes
+      const { data: likesList } = suggestionIds.length > 0
+        ? await supabase
+            .from("likes")
+            .select("*")
+            .eq("target_type", "suggestion")
+            .in("target_id", suggestionIds)
+        : { data: [] };
+
+      const suggLikes: Record<string, { count: number; isLiked: boolean }> = {};
+      (likesList || []).forEach((like: any) => {
         const sid = like.target_id;
-        if (!suggLikes[sid]) {
-          suggLikes[sid] = { count: 0, isLiked: false };
-        }
+        if (!suggLikes[sid]) suggLikes[sid] = { count: 0, isLiked: false };
         suggLikes[sid].count += 1;
-        if (user && like.user_id === user.id) {
-          suggLikes[sid].isLiked = true;
-          suggLikes[sid].likeId = like.id;
-        }
+        if (user && like.user_id === user.id) suggLikes[sid].isLiked = true;
       });
       setSuggestionLikes(suggLikes);
 
-      let items = result.items;
+      let sortedItems = items || [];
       if (sortBy === "liked") {
-        items = [...items].sort((a, b) => {
+        sortedItems = [...sortedItems].sort((a: any, b: any) => {
           const aCount = suggLikes[a.id]?.count || 0;
           const bCount = suggLikes[b.id]?.count || 0;
           return bCount - aCount;
         });
       }
-      setSuggestions(items);
+      setSuggestions(sortedItems as Suggestion[]);
 
-      // Fetch reply counts for all suggestions on this page
-      try {
+      // Fetch reply counts
+      if (suggestionIds.length > 0) {
+        const { data: allReplies } = await supabase
+          .from("suggestion_replies")
+          .select("suggestion_id")
+          .in("suggestion_id", suggestionIds);
+
         const counts: Record<string, number> = {};
-        await Promise.all(suggestionIds.map(async (sid) => {
-          const r = await pb.collection("suggestion_replies").getList(1, 1, {
-            filter: `suggestion_id="${sid}"`,
-            signal: signal,
-          });
-        counts[sid] = r.totalItems;
-        console.log(r)
-      }));
-      setReplyCounts(counts);
-      console.log(counts)
-    } catch (e) {
-      console.error("Failed to fetch reply counts:", e);
+        (allReplies || []).forEach((r: any) => {
+          counts[r.suggestion_id] = (counts[r.suggestion_id] || 0) + 1;
+        });
+        setReplyCounts(counts);
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") console.error(e);
+    } finally {
+      setLoadingFeed(false);
     }
-  } catch (e) {
-    console.error(e);
-  } finally {
-    setLoadingFeed(false);
-  }
-};
+  };
 
   useEffect(() => {
     const controller = new AbortController();
-  const { signal } = controller;
-    //  fetchFeed();
-
-    let isMounted = true;
-
-  const loadData = async () => {
-    try {
-      await fetchFeed(signal);
-    } catch (err) {
-      // لن يتم طباعة الخطأ في الكونسول إلا إذا كان المكون لا يزال معروضاً بالفعل
-      if (isMounted) {
-        console.error("Actual error fetching feed:", err);
-      }
-    }
-  };
-
-  loadData();
-
- return () => {
-    controller.abort();
-  };
-    }, [sortBy, user]);
+    fetchFeed(controller.signal);
+    return () => controller.abort();
+  }, [sortBy, user]);
 
   const handleSubmit = async () => {
     if (!isLoggedIn || !user) return;
     if (!title.trim() || !body.trim()) return;
     setSubmitting(true);
     try {
-      await pb.collection("suggestions").create({
+      const { error } = await supabase.from("suggestions").insert({
         user_id: user.id,
         title: title.trim(),
         body: body.trim(),
         topic: formTopic || "Other",
         status: "pending",
       });
+      if (error) throw error;
       setTitle(""); setBody(""); setFormTopic("");
       setSubmitSuccess(true);
       fetchFeed();
@@ -152,38 +129,39 @@ export default function SuggestPage() {
 
   const loadReplies = async (suggestionId: string) => {
     try {
-      const r = await pb.collection("suggestion_replies").getList<SuggestionReply>(1, 50, {
-        filter: `suggestion_id="${suggestionId}"`,
-        sort: "created",
-        expand: "user_id",
-      });
-      setReplies((prev) => ({ ...prev, [suggestionId]: r.items }));
+      const { data: replyItems, error } = await supabase
+        .from("suggestion_replies")
+        .select("*, user:profiles!user_id(*)")
+        .eq("suggestion_id", suggestionId)
+        .order("created_at", { ascending: true });
 
-      // Fetch likes for these specific suggestion replies only
-      const replyIds = r.items.map((reply) => reply.id);
-      const replyLikesFilter = replyIds.length > 0
-        ? `target_type="suggestion_reply" && (${replyIds.map((id) => `target_id="${id}"`).join(" || ")})`
-        : `target_type="suggestion_reply" && target_id="__none__"`;
-      const likesList = await pb.collection("likes").getFullList({
-        filter: replyLikesFilter,
-      });
-      setReplyLikes((prev) => {
-        const next = { ...prev };
-        r.items.forEach((reply) => {
-          next[reply.id] = { count: 0, isLiked: false };
-        });
-        likesList.forEach((like) => {
-          const rid = like.target_id;
-          if (next[rid] !== undefined) {
-            next[rid].count += 1;
-            if (user && like.user_id === user.id) {
-              next[rid].isLiked = true;
-              next[rid].likeId = like.id;
+      if (error) throw error;
+      setReplies((prev) => ({ ...prev, [suggestionId]: replyItems as SuggestionReply[] }));
+
+      // Fetch likes for these replies
+      const replyIds = (replyItems || []).map((r: any) => r.id);
+      if (replyIds.length > 0) {
+        const { data: likesList } = await supabase
+          .from("likes")
+          .select("*")
+          .eq("target_type", "suggestion_reply")
+          .in("target_id", replyIds);
+
+        setReplyLikes((prev) => {
+          const next = { ...prev };
+          (replyItems || []).forEach((reply: any) => {
+            next[reply.id] = { count: 0, isLiked: false };
+          });
+          (likesList || []).forEach((like: any) => {
+            const rid = like.target_id;
+            if (next[rid] !== undefined) {
+              next[rid].count += 1;
+              if (user && like.user_id === user.id) next[rid].isLiked = true;
             }
-          }
+          });
+          return next;
         });
-        return next;
-      });
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -201,80 +179,71 @@ export default function SuggestPage() {
     const content = replyText[suggestionId]?.trim();
     if (!content) return;
     try {
-      await pb.collection("suggestion_replies").create({
+      const { error } = await supabase.from("suggestion_replies").insert({
         suggestion_id: suggestionId,
         user_id: user.id,
         content,
         is_pinned: false,
       });
+      if (error) throw error;
       setReplyText((prev) => ({ ...prev, [suggestionId]: "" }));
       loadReplies(suggestionId);
-      // Update reply count
       setReplyCounts((prev) => ({ ...prev, [suggestionId]: (prev[suggestionId] || 0) + 1 }));
     } catch (e) { console.error(e); }
   };
 
   const handleLikeSuggestion = async (suggestionId: string) => {
     if (!isLoggedIn || !user) return;
-    const current = suggestionLikes[suggestionId] || { count: 0, isLiked: false };
     try {
-      if (current.isLiked) {
-        if (current.likeId) {
-          await pb.collection("likes").delete(current.likeId);
-          setSuggestionLikes((prev) => ({
-            ...prev,
-            [suggestionId]: { count: Math.max(0, current.count - 1), isLiked: false },
-          }));
-        }
-      } else {
-        const newLike = await pb.collection("likes").create({
-          user_id: user.id,
-          target_type: "suggestion",
-          target_id: suggestionId,
-        });
+      const { data, error } = await supabase.rpc("toggle_like", {
+        p_target_type: "suggestion",
+        p_target_id: suggestionId,
+      });
+      if (error) throw error;
+      const current = suggestionLikes[suggestionId] || { count: 0, isLiked: false };
+      if (data?.action === "liked") {
         setSuggestionLikes((prev) => ({
           ...prev,
-          [suggestionId]: { count: current.count + 1, isLiked: true, likeId: newLike.id },
+          [suggestionId]: { count: current.count + 1, isLiked: true },
+        }));
+      } else {
+        setSuggestionLikes((prev) => ({
+          ...prev,
+          [suggestionId]: { count: Math.max(0, current.count - 1), isLiked: false },
         }));
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const handleLikeReply = async (replyId: string) => {
     if (!isLoggedIn || !user) return;
-    const current = replyLikes[replyId] || { count: 0, isLiked: false };
     try {
-      if (current.isLiked) {
-        if (current.likeId) {
-          await pb.collection("likes").delete(current.likeId);
-          setReplyLikes((prev) => ({
-            ...prev,
-            [replyId]: { count: Math.max(0, current.count - 1), isLiked: false },
-          }));
-        }
-      } else {
-        const newLike = await pb.collection("likes").create({
-          user_id: user.id,
-          target_type: "suggestion_reply",
-          target_id: replyId,
-        });
+      const { data, error } = await supabase.rpc("toggle_like", {
+        p_target_type: "suggestion_reply",
+        p_target_id: replyId,
+      });
+      if (error) throw error;
+      const current = replyLikes[replyId] || { count: 0, isLiked: false };
+      if (data?.action === "liked") {
         setReplyLikes((prev) => ({
           ...prev,
-          [replyId]: { count: current.count + 1, isLiked: true, likeId: newLike.id },
+          [replyId]: { count: current.count + 1, isLiked: true },
+        }));
+      } else {
+        setReplyLikes((prev) => ({
+          ...prev,
+          [replyId]: { count: Math.max(0, current.count - 1), isLiked: false },
         }));
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const handleDeleteSuggestion = async (id: string) => {
     if (!isAdmin) return;
     if (!window.confirm("⚠️ هل أنت متأكد من حذف هذا الاقتراح بالكامل؟")) return;
     try {
-      await pb.collection("suggestions").delete(id);
+      const { error } = await supabase.from("suggestions").delete().eq("id", id);
+      if (error) throw error;
       fetchFeed();
     } catch (e) { console.error(e); }
   };
@@ -283,9 +252,9 @@ export default function SuggestPage() {
     if (!isAdmin) return;
     if (!window.confirm("⚠️ هل أنت متأكد من حذف هذا الرد؟")) return;
     try {
-      await pb.collection("suggestion_replies").delete(replyId);
+      const { error } = await supabase.from("suggestion_replies").delete().eq("id", replyId);
+      if (error) throw error;
       loadReplies(suggestionId);
-      // Update reply count
       setReplyCounts((prev) => ({ ...prev, [suggestionId]: Math.max(0, (prev[suggestionId] || 1) - 1) }));
     } catch (e) { console.error(e); }
   };
@@ -293,7 +262,8 @@ export default function SuggestPage() {
   const handleAdminAction = async (id: string, status: string) => {
     if (!isAdmin) return;
     try {
-      await pb.collection("suggestions").update(id, { status });
+      const { error } = await supabase.from("suggestions").update({ status }).eq("id", id);
+      if (error) throw error;
       fetchFeed();
     } catch (e) { console.error(e); }
   };
@@ -301,14 +271,13 @@ export default function SuggestPage() {
   const handlePinReply = async (replyId: string, suggestionId: string) => {
     if (!isAdmin) return;
     try {
-      // Unpin all replies for this suggestion first
       const r = replies[suggestionId] || [];
       for (const reply of r) {
         if (reply.is_pinned) {
-          await pb.collection("suggestion_replies").update(reply.id, { is_pinned: false });
+          await supabase.from("suggestion_replies").update({ is_pinned: false }).eq("id", reply.id);
         }
       }
-      await pb.collection("suggestion_replies").update(replyId, { is_pinned: true });
+      await supabase.from("suggestion_replies").update({ is_pinned: true }).eq("id", replyId);
       loadReplies(suggestionId);
     } catch (e) { console.error(e); }
   };
@@ -407,20 +376,20 @@ export default function SuggestPage() {
         ) : (
           <div className="space-y-4">
             {suggestions.map((s) => {
-              const author = s.expand?.user_id;
+              const author = (s as any).user;
               const statusInfo = STATUS_LABELS[s.status] || STATUS_LABELS.pending;
               const isOpen = expanded === s.id;
               const suggReplies = replies[s.id] || [];
-              const countReplies = replyCounts[s.id] || [];
-console.log(s)
+              const countReplies = replyCounts[s.id] || 0;
+
               return (
                 <div key={s.id} className="card overflow-hidden">
                   <div className="p-5">
                     {/* Header */}
                     <div className="flex items-start gap-3 mb-3">
-                      {author?.avatar ? (
+                      {author?.avatar_url ? (
                         <img
-                          src={pb.files.getURL(author, author.avatar)}
+                          src={author.avatar_url}
                           alt={author?.name || author?.username || "مستخدم"}
                           className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-100 dark:border-slate-800"
                         />
@@ -435,7 +404,7 @@ console.log(s)
                             {author?.name || author?.username || "مستخدم"}
                           </span>
                           <span className="text-xs text-slate-400">
-                            {new Date(s.created).toLocaleDateString("ar-EG")}
+                            {new Date(s.created_at).toLocaleDateString("ar-EG")}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -502,7 +471,7 @@ console.log(s)
                       ) : (
                         <div className="space-y-3 mb-4">
                           {suggReplies.map((r) => {
-                            const rAuthor = r.expand?.user_id;
+                            const rAuthor = (r as any).user;
                             const replyLikeInfo = replyLikes[r.id] || { count: 0, isLiked: false };
                             return (
                               <div key={r.id} className={`flex gap-2 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 ${r.is_pinned ? "p-3 bg-blue-50/70 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800" : ""}`}>

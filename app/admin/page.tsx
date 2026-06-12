@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import getPocketBase from "@/lib/pb";
-import type { Question, Suggestion } from "@/types";
+import getSupabase from "@/lib/supabase";
+import type { Suggestion } from "@/types";
 import { TopicBadge } from "@/components/ui";
 
 interface Stats {
@@ -17,7 +17,7 @@ interface Stats {
 export default function AdminPage() {
   const { isLoggedIn, isAdmin, isLoading } = useAuth();
   const router = useRouter();
-  const pb = getPocketBase();
+  const supabase = getSupabase();
 
   const [stats, setStats] = useState<Stats>({ totalQuestions: 0, totalComments: 0, totalSuggestions: 0, pendingSuggestions: 0 });
   const [pendingSuggestions, setPendingSuggestions] = useState<Suggestion[]>([]);
@@ -39,25 +39,27 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const [qCount, cCount, sCount, pendingCount] = await Promise.all([
-        pb.collection("questions").getList(1, 1),
-        pb.collection("comments").getList(1, 1),
-        pb.collection("suggestions").getList(1, 1),
-        pb.collection("suggestions").getList(1, 1, { filter: 'status="pending"' }),
+        supabase.from("questions").select("*", { count: "exact", head: true }),
+        supabase.from("comments").select("*", { count: "exact", head: true }),
+        supabase.from("suggestions").select("*", { count: "exact", head: true }),
+        supabase.from("suggestions").select("*", { count: "exact", head: true }).eq("status", "pending"),
       ]);
 
       setStats({
-        totalQuestions: qCount.totalItems,
-        totalComments: cCount.totalItems,
-        totalSuggestions: sCount.totalItems,
-        pendingSuggestions: pendingCount.totalItems,
+        totalQuestions: qCount.count || 0,
+        totalComments: cCount.count || 0,
+        totalSuggestions: sCount.count || 0,
+        pendingSuggestions: pendingCount.count || 0,
       });
 
-      const pending = await pb.collection("suggestions").getList<Suggestion>(1, 20, {
-        filter: 'status="pending"',
-        sort: "-created",
-        expand: "user_id",
-      });
-      setPendingSuggestions(pending.items);
+      const { data: pending } = await supabase
+        .from("suggestions")
+        .select("*, user:profiles!user_id(*)")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      setPendingSuggestions((pending || []) as Suggestion[]);
     } catch (e) {
       console.error(e);
     } finally {
@@ -67,7 +69,8 @@ export default function AdminPage() {
 
   const handleSuggestionAction = async (id: string, status: string) => {
     try {
-      await pb.collection("suggestions").update(id, { status });
+      const { error } = await supabase.from("suggestions").update({ status }).eq("id", id);
+      if (error) throw error;
       setPendingSuggestions((prev) => prev.filter((s) => s.id !== id));
       setStats((prev) => ({ ...prev, pendingSuggestions: prev.pendingSuggestions - 1 }));
     } catch (e) { console.error(e); }
@@ -141,7 +144,7 @@ export default function AdminPage() {
           ) : (
             <div className="space-y-4">
               {pendingSuggestions.map((s) => {
-                const author = s.expand?.user_id;
+                const author = (s as any).user;
                 return (
                   <div key={s.id} className="card p-5">
                     <div className="flex items-start justify-between gap-4">
@@ -153,7 +156,7 @@ export default function AdminPage() {
                         <p className="text-sm text-slate-600 dark:text-slate-400 font-arabic line-clamp-3">{s.body}</p>
                         <p className="text-xs text-slate-400 mt-2">
                           بواسطة: {author?.name || author?.username || "مستخدم"} —{" "}
-                          {new Date(s.created).toLocaleDateString("ar-EG")}
+                          {new Date(s.created_at).toLocaleDateString("ar-EG")}
                         </p>
                       </div>
                       <div className="flex flex-col gap-2 shrink-0">
@@ -190,14 +193,14 @@ export default function AdminPage() {
         <div className="card p-8 text-center text-slate-400">
           <p className="text-4xl mb-3">📚</p>
           <p className="font-medium text-slate-600 dark:text-slate-300">محرر الأسئلة</p>
-          <p className="text-sm mt-2">يمكن تعديل الأسئلة مباشرة من لوحة تحكم PocketBase</p>
+          <p className="text-sm mt-2">يمكن تعديل الأسئلة مباشرة من لوحة تحكم Supabase</p>
           <a
-            href="http://127.0.0.1:8090/_/"
+            href={process.env.NEXT_PUBLIC_SUPABASE_URL?.replace('.supabase.co', '.supabase.co') ? `https://supabase.com/dashboard` : '#'}
             target="_blank"
             rel="noopener noreferrer"
             className="btn-primary mt-4 inline-flex"
           >
-            فتح PocketBase Admin →
+            فتح Supabase Dashboard →
           </a>
         </div>
       )}

@@ -1,7 +1,7 @@
 "use client";
 
 // context/AuthContext.tsx
-// Global auth context using PocketBase auth store
+// Global auth context using Supabase Auth
 
 import {
   createContext,
@@ -11,7 +11,7 @@ import {
   useCallback,
   ReactNode,
 } from "react";
-import getPocketBase from "@/lib/pb";
+import getSupabase from "@/lib/supabase";
 import type { User, AuthState } from "@/types";
 
 interface AuthContextType extends AuthState {
@@ -40,36 +40,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: true,
   });
 
-  const pb = getPocketBase();
+  const supabase = getSupabase();
 
-  const syncAuth = useCallback(() => {
-    const model = pb.authStore.record as User | null;
-    setState({
-      user: model,
-      isLoggedIn: pb.authStore.isValid,
-      isAdmin: (model as User | null)?.role === "admin",
-      isLoading: false,
-    });
-  }, [pb]);
+  // Build our User object from Supabase auth user + profiles table
+  const loadProfile = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.user) {
+        setState({ user: null, isLoggedIn: false, isAdmin: false, isLoading: false });
+        return;
+      }
+
+      const authUser = session.user;
+
+      // Fetch or upsert profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
+        .single();
+
+      const user: User = {
+        id: authUser.id,
+        email: authUser.email || "",
+        username: profile?.username || authUser.user_metadata?.preferred_username || authUser.email?.split("@")[0] || "",
+        name: profile?.name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || "",
+        avatar_url: profile?.avatar_url || authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || "",
+        role: profile?.role || "user",
+        created_at: profile?.created_at || authUser.created_at || "",
+        updated_at: profile?.updated_at || "",
+      };
+
+      setState({
+        user,
+        isLoggedIn: true,
+        isAdmin: user.role === "admin",
+        isLoading: false,
+      });
+    } catch (err) {
+      console.error("Auth load error:", err);
+      setState({ user: null, isLoggedIn: false, isAdmin: false, isLoading: false });
+    }
+  }, [supabase]);
 
   useEffect(() => {
-    // Initial sync
-    syncAuth();
+    // Initial load
+    loadProfile();
 
-    // Listen to auth state changes and sync to cookies for full reload-persistence and SSR support
-    const unsub = pb.authStore.onChange((token, model) => {
-      if (typeof document !== "undefined") {
-        document.cookie = pb.authStore.exportToCookie({ secure: false, sameSite: "lax" });
-      }
-      syncAuth();
+    // Listen to auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, _session) => {
+      loadProfile();
     });
 
-    return () => unsub();
-  }, [pb, syncAuth]);
+    return () => subscription.unsubscribe();
+  }, [supabase, loadProfile]);
 
   const signInWithGoogle = async () => {
     try {
-      await pb.collection("users").authWithOAuth2({ provider: "google" });
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
     } catch (err) {
       console.error("Google OAuth error:", err);
       throw err;
@@ -78,7 +110,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGithub = async () => {
     try {
-      await pb.collection("users").authWithOAuth2({ provider: "github" });
+      await supabase.auth.signInWithOAuth({
+        provider: "github",
+        options: { redirectTo: window.location.origin },
+      });
     } catch (err) {
       console.error("GitHub OAuth error:", err);
       throw err;
@@ -86,13 +121,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    pb.authStore.clear();
-    if (typeof document !== "undefined") {
-      document.cookie = "pb_auth=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    }
+    await supabase.auth.signOut();
+    setState({ user: null, isLoggedIn: false, isAdmin: false, isLoading: false });
   };
 
-  const refreshUser = () => syncAuth();
+  const refreshUser = () => loadProfile();
 
   return (
     <AuthContext.Provider
