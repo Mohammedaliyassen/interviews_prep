@@ -1,0 +1,215 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+
+/* ─── Design Tokens ─────────────────────────────────────────────────────────── */
+@theme {
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+
+  --badge-js-bg: #fef3c7;
+  --badge-js-text: #92400e;
+  --badge-js-border: #fbbf24;
+  --badge-react-bg: #dbeafe;
+  --badge-react-text: #1e3a8a;
+  --badge-react-border: #3b82f6;
+  --badge-html-bg: #ffedd5;
+  --badge-html-text: #7c2d12;
+  --badge-html-border: #f97316;
+  --badge-css-bg: #f3e8ff;
+  --badge-css-text: #3b0764;
+  --badge-css-border: #a855f7;
+  --badge-net-bg: #d1fae5;
+  --badge-net-text: #064e3b;
+  --badge-net-border: #10b981;
+}
+
+/* ─── Base styles ────────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: "Cairo", "Inter", system-ui, sans-serif;
+    line-height: 1.7;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  [lang="ar"],
+  .font-arabic,
+  .ar {
+    font-family: "Cairo", system-ui, sans-serif;
+  }
+
+  .font-latin,
+  .en {
+    font-family: "Inter", system-ui, sans-serif;
+    direction: ltr;
+    text-align: left;
+  }
+
+  pre {
+    @apply rounded-lg overflow-x-auto text-sm p-4 bg-slate-800 text-slate-200;
+    direction: ltr;
+    text-align: left;
+  }
+
+  code {
+    @apply text-sm px-1 py-0.5 rounded bg-slate-800 text-sky-300;
+    direction: ltr;
+  }
+
+  pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-slate-400 rounded; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-500; }
+}
+
+/* ─── Custom Utilities (TailwindCSS v4 @utility syntax) ─────────────────────── */
+
+/* Card */
+@utility card {
+  @apply bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm;
+}
+
+@utility card-hover {
+  @apply bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm;
+  @apply transition-all duration-200 hover:shadow-md hover:border-blue-200 dark:hover:border-blue-700;
+}
+
+/* Buttons */
+@utility btn-primary {
+  @apply inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+@utility btn-secondary {
+  @apply inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-medium text-sm transition-colors duration-150;
+}
+
+@utility btn-ghost {
+  @apply inline-flex items-center gap-2 px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-sm transition-colors duration-150;
+}
+
+/* Badge base */
+@utility badge {
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+}
+
+/* Topic badges */
+@utility badge-js {
+  background: var(--badge-js-bg);
+  color: var(--badge-js-text);
+  border: 1px solid var(--badge-js-border);
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+}
+
+@utility badge-react {
+  background: var(--badge-react-bg);
+  color: var(--badge-react-text);
+  border: 1px solid var(--badge-react-border);
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+}
+
+@utility badge-html {
+  background: var(--badge-html-bg);
+  color: var(--badge-html-text);
+  border: 1px solid var(--badge-html-border);
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+}
+
+@utility badge-css {
+  background: var(--badge-css-bg);
+  color: var(--badge-css-text);
+  border: 1px solid var(--badge-css-border);
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+}
+
+@utility badge-net {
+  background: var(--badge-net-bg);
+  color: var(--badge-net-text);
+  border: 1px solid var(--badge-net-border);
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+}
+
+@utility badge-repeat {
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+  @apply bg-orange-100 text-orange-800 border border-orange-300;
+}
+
+@utility badge-easy {
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+  @apply bg-green-100 text-green-800 border border-green-300;
+}
+
+@utility badge-medium {
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+  @apply bg-yellow-100 text-yellow-800 border border-yellow-300;
+}
+
+@utility badge-hard {
+  @apply inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full;
+  @apply bg-red-100 text-red-800 border border-red-300;
+}
+
+/* Summary boxes */
+@utility summary-arabic {
+  @apply rounded-lg p-3 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-green-900 dark:text-green-100 text-sm leading-relaxed;
+}
+
+@utility summary-english {
+  @apply rounded-lg p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-100 text-sm leading-relaxed;
+  direction: ltr;
+  text-align: left;
+}
+
+/* Filter tab */
+@utility filter-tab {
+  @apply px-4 py-2 text-sm font-medium rounded-full border border-transparent transition-all duration-150 cursor-pointer whitespace-nowrap text-slate-500 dark:text-slate-400;
+}
+
+@utility filter-tab-active {
+  @apply px-4 py-2 text-sm font-medium rounded-full border border-transparent transition-all duration-150 cursor-pointer whitespace-nowrap;
+  @apply bg-blue-600 text-white border-blue-600;
+}
+
+/* Input */
+@utility input {
+  @apply w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors text-sm;
+}
+
+/* Spinner */
+@utility spinner {
+  @apply inline-block border-2 border-current border-t-transparent rounded-full animate-spin;
+}
+
+/* Accordion */
+@utility accordion-closed {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+}
+
+@utility accordion-open {
+  overflow: hidden;
+  max-height: 9999px;
+  opacity: 1;
+  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+}
+
+/* dark-transition */
+@utility dark-transition {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
