@@ -55,7 +55,7 @@ export default function HomePage() {
       // Apply search filter
       if (debouncedSearch.trim()) {
         const s = debouncedSearch.trim();
-        query = query.or(`english.ilike.%${s}%,arabic.ilike.%${s}%,tags.cs.{${s}}`);
+        query = query.or(`english.ilike.%${s}%,arabic.ilike.%${s}%,tags.cs.["${s}"]`);
       }
 
       // Apply sort

@@ -43,3 +43,12 @@ yarn-error.log*
 
 # testing
 coverage/
+
+# local dev scripts and database backups
+scripts/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!eslint.config.mjs
+

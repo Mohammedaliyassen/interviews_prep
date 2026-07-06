@@ -52,12 +52,31 @@ export default function AdminPage() {
         pendingSuggestions: pendingCount.count || 0,
       });
 
-      const { data: pending } = await supabase
+      const { data: rawPending, error: pendingError } = await supabase
         .from("suggestions")
-        .select("*, user:profiles!user_id(*)")
+        .select("*")
         .eq("status", "pending")
         .order("created_at", { ascending: false })
         .limit(20);
+
+      if (pendingError) throw pendingError;
+
+      let pending: any[] = [];
+      if (rawPending && rawPending.length > 0) {
+        const userIds = [...new Set(rawPending.map((item: any) => item.user_id))];
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("*")
+          .in("id", userIds);
+
+        if (profilesError) throw profilesError;
+
+        const profilesMap = new Map(profiles?.map((p: any) => [p.id, p]) || []);
+        pending = rawPending.map((item: any) => ({
+          ...item,
+          user: profilesMap.get(item.user_id) || null,
+        }));
+      }
 
       setPendingSuggestions((pending || []) as Suggestion[]);
     } catch (e) {

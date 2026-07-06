@@ -341,10 +341,11 @@ function ActionRow({
 // ─── Main QuestionCard ────────────────────────────────────────────────────────
 interface QuestionCardProps {
   question: Question;
+  initialOpen?: boolean;
 }
 
-export default function QuestionCard({ question }: QuestionCardProps) {
-  const [open, setOpen] = useState(false);
+export default function QuestionCard({ question, initialOpen = false }: QuestionCardProps) {
+  const [open, setOpen] = useState(initialOpen);
   const [likeCount, setLikeCount] = useState(question.like_count || 0);
   const [isLiked, setIsLiked] = useState(question.is_liked || false);
   const [isFavorited, setIsFavorited] = useState(question.is_favorited || false);

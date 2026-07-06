@@ -66,7 +66,7 @@ export interface Comment extends BaseRecord {
 }
 
 // ─── Likes ────────────────────────────────────────────────────────────────────
-export type LikeTargetType = "question" | "comment" | "suggestion" | "suggestion_reply";
+export type LikeTargetType = "question" | "comment" | "suggestion" | "suggestion_reply" | "challenge" | "challenge_solution";
 
 export interface Like extends BaseRecord {
   user_id: string;
@@ -109,6 +109,39 @@ export interface SuggestionReply extends BaseRecord {
   is_pinned: boolean;
   // Joined user profile
   user?: User;
+}
+
+// ─── Challenges (Problem Solving) ────────────────────────────────────────────
+export interface Challenge extends BaseRecord {
+  user_id: string;
+  title: string;
+  description: string;
+  difficulty: Difficulty;
+  topic: SuggestionTopic;
+  starter_code: string;
+  expected_output: string;
+  status: SuggestionStatus;
+  // Joined user profile
+  user?: User;
+  // Computed
+  like_count?: number;
+  is_liked?: boolean;
+  solution_count?: number;
+}
+
+// ─── Challenge Solutions ─────────────────────────────────────────────────────
+export interface ChallengeSolution extends BaseRecord {
+  challenge_id: string;
+  user_id: string;
+  code: string;
+  language: string;
+  explanation: string;
+  is_pinned: boolean;
+  // Joined user profile
+  user?: User;
+  // Computed
+  like_count?: number;
+  is_liked?: boolean;
 }
 
 // ─── UI State ────────────────────────────────────────────────────────────────

@@ -53,14 +53,32 @@ export default function CommentSection({ questionId }: CommentSectionProps) {
   const fetchComments = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch all comments for this question with user profile join
-      const { data: records, error } = await supabase
+      // Fetch all comments for this question
+      const { data: rawRecords, error } = await supabase
         .from("comments")
-        .select("*, user:profiles!user_id(*)")
+        .select("*")
         .eq("question_id", questionId)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
+
+      // Perform client-side join with profiles
+      let records: any[] = [];
+      if (rawRecords && rawRecords.length > 0) {
+        const userIds = [...new Set(rawRecords.map((r: any) => r.user_id))];
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("*")
+          .in("id", userIds);
+
+        if (profilesError) throw profilesError;
+
+        const profilesMap = new Map(profiles?.map((p: any) => [p.id, p]) || []);
+        records = rawRecords.map((r: any) => ({
+          ...r,
+          user: profilesMap.get(r.user_id) || null,
+        }));
+      }
 
       const parsedComments = (records || []).map((record: any) => ({
         id: record.id,

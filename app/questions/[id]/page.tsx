@@ -37,14 +37,20 @@ export default function QuestionDetailPage() {
         .select("*", { count: "exact", head: true })
         .eq("target_type", "question")
         .eq("target_id", id);
-      record.like_count = likeCount || 0;
-
+      
       // Get comments count
       const { count: commentCount } = await supabase
         .from("comments")
         .select("*", { count: "exact", head: true })
         .eq("question_id", id);
-      record.comment_count = commentCount || 0;
+
+      const updatedRecord = {
+        ...record,
+        like_count: likeCount || 0,
+        comment_count: commentCount || 0,
+        liked_by_user: false,
+        favorited_by_user: false,
+      };
 
       // Get user's like/favorite state
       if (user) {
@@ -63,101 +69,76 @@ export default function QuestionDetailPage() {
             .eq("question_id", id)
             .maybeSingle(),
         ]);
-        record.is_liked = !!userLike.data;
-        record.is_favorited = !!userFav.data;
+        
+        updatedRecord.is_liked = !!userLike.data;
+        updatedRecord.is_favorited = !!userFav.data;
       }
 
-      setQuestion(record as Question);
-    } catch (e) {
-      console.error("Error loading question details:", e);
+      setQuestion(updatedRecord);
+    } catch (err: any) {
+      console.error("Error fetching question:", err.message);
     } finally {
       setLoading(false);
     }
-  }, [id, supabase, user]);
+  }, [id, user, supabase]);
 
   useEffect(() => {
     fetchQuestion();
   }, [fetchQuestion]);
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-20 flex flex-col items-center justify-center gap-4 text-center">
-        <div className="spinner text-blue-600 w-8 h-8" />
-        <p className="text-slate-500 text-sm font-arabic">جاري تحميل تفاصيل السؤال...</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
 
   if (!question) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-20 flex flex-col items-center justify-center gap-4 text-center">
-        <div className="text-5xl">⚠️</div>
-        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 font-arabic">عذراً، السؤال غير موجود</h2>
-        <p className="text-slate-400 text-sm font-arabic">ربما تم حذف هذا السؤال أو أن الرابط غير صحيح.</p>
-        <button onClick={() => router.push("/")} className="btn-secondary mt-2 font-arabic">
-          العودة للمكتبة الرئيسية
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-200 mb-2">السؤال غير موجود</h1>
+        <p className="text-slate-500 dark:text-slate-400 mb-6">عذراً، لم نتمكن من العثور على هذا السؤال في المكتبة.</p>
+        <button
+          onClick={() => router.push("/")}
+          className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition"
+        >
+          العودة للمكتبة
         </button>
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8" dir="rtl">
-      {/* Print Stylesheet */}
-      <style jsx global>{`
-        @media print {
-          body {
-            background: white !important;
-            color: black !important;
-          }
-          nav, footer, .no-print, button, form, .sticky {
-            display: none !important;
-          }
-          .print-container {
-            width: 100% !important;
-            max-width: 100% !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            box-shadow: none !important;
-            border: none !important;
-          }
-          .accordion-closed {
-            height: auto !important;
-            opacity: 1 !important;
-            overflow: visible !important;
-            visibility: visible !important;
-          }
-        }
-      `}</style>
-
-      {/* Header controls (no-print) */}
-      <div className="flex items-center justify-between gap-4 mb-6 no-print">
-        <button
-          onClick={() => router.push("/")}
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors bg-transparent border-none cursor-pointer font-arabic"
-        >
-          🔙 العودة للمكتبة الرئيسية
-        </button>
-
-        <button
-          onClick={handlePrint}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 rounded-xl shadow-sm transition-all cursor-pointer font-arabic no-print"
-        >
-          📄 تصدير كـ PDF / طباعة
-        </button>
-      </div>
-
-      {/* Main content container */}
-      <div className="space-y-8 print-container">
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-          <QuestionCard question={question} />
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-16">
+      <div className="max-w-4xl mx-auto px-4 pt-8">
+        {/* Navigation / Actions Bar */}
+        <div className="flex justify-between items-center mb-6">
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition shadow-sm text-sm font-bold text-slate-700 dark:text-slate-300 print:hidden cursor-pointer"
+          >
+            🖨️ طباعة أو تصدير PDF
+          </button>
+          
+          <button
+            onClick={() => router.push("/")}
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition shadow-sm text-sm font-bold text-slate-700 dark:text-slate-300 print:hidden cursor-pointer"
+          >
+            العودة للمكتبة ⬅️
+          </button>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm no-print">
+        {/* Question Details */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm mb-8">
+          <QuestionCard
+            question={question}
+            initialOpen={true}
+          />
+        </div>
+
+        {/* Comments Section */}
+        <div className="print:hidden">
           <CommentSection questionId={question.id} />
         </div>
       </div>
