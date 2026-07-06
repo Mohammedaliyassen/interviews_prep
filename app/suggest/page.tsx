@@ -60,6 +60,7 @@ export default function SuggestPage() {
   const [challengeTopic, setChallengeTopic] = useState("");
   const [submittingChallenge, setSubmittingChallenge] = useState(false);
   const [challengeSubmitSuccess, setChallengeSubmitSuccess] = useState(false);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
 
   const [expandedChallenge, setExpandedChallenge] = useState<string | null>(null);
   const [solutions, setSolutions] = useState<Record<string, ChallengeSolution[]>>({});
@@ -428,13 +429,25 @@ export default function SuggestPage() {
 
   const handleSubmitChallenge = async () => {
     if (!isLoggedIn || !user) return;
-    if (!challengeTitle.trim() || !challengeDesc.trim()) return;
+    const titleVal = challengeTitle.trim();
+    const descVal = challengeDesc.trim();
+
+    if (titleVal.length < 3) {
+      setChallengeError("عنوان التحدي يجب أن لا يقل عن 3 أحرف");
+      return;
+    }
+    if (descVal.length < 10) {
+      setChallengeError("وصف التحدي يجب أن لا يقل عن 10 أحرف");
+      return;
+    }
+
     setSubmittingChallenge(true);
+    setChallengeError(null);
     try {
       const { error } = await supabase.from("challenges").insert({
         user_id: user.id,
-        title: challengeTitle.trim(),
-        description: challengeDesc.trim(),
+        title: titleVal,
+        description: descVal,
         starter_code: challengeStarterCode,
         expected_output: challengeExpectedOutput,
         difficulty: challengeDifficulty || "medium",
@@ -447,8 +460,12 @@ export default function SuggestPage() {
       setChallengeSubmitSuccess(true);
       fetchChallenges();
       setTimeout(() => setChallengeSubmitSuccess(false), 4000);
-    } catch (e) { console.error(e); }
-    finally { setSubmittingChallenge(false); }
+    } catch (e: any) {
+      console.error(e);
+      setChallengeError(e.message || "حدث خطأ أثناء إضافة التحدي");
+    } finally {
+      setSubmittingChallenge(false);
+    }
   };
 
   const loadSolutions = async (challengeId: string) => {
@@ -904,23 +921,34 @@ export default function SuggestPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <input
-                  id="challenge-title"
-                  value={challengeTitle}
-                  onChange={(e) => setChallengeTitle(e.target.value)}
-                  placeholder="عنوان التحدي (مثال: اكتب دالة ترتب مصفوفة)"
-                  className="input"
-                  dir="auto"
-                />
-                <textarea
-                  id="challenge-desc"
-                  value={challengeDesc}
-                  onChange={(e) => setChallengeDesc(e.target.value)}
-                  placeholder="اشرح المشكلة بالتفصيل... ما هو المطلوب؟ ما هي الشروط؟"
-                  rows={4}
-                  className="input resize-none font-arabic"
-                  dir="auto"
-                />
+                {challengeError && (
+                  <div className="p-3 bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400 rounded-lg text-sm border border-red-200 dark:border-red-800">
+                    ⚠️ {challengeError}
+                  </div>
+                )}
+                <div>
+                  <input
+                    id="challenge-title"
+                    value={challengeTitle}
+                    onChange={(e) => setChallengeTitle(e.target.value)}
+                    placeholder="عنوان التحدي (مثال: اكتب دالة ترتب مصفوفة)"
+                    className="input"
+                    dir="auto"
+                  />
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">يجب أن لا يقل عن 3 أحرف</span>
+                </div>
+                <div>
+                  <textarea
+                    id="challenge-desc"
+                    value={challengeDesc}
+                    onChange={(e) => setChallengeDesc(e.target.value)}
+                    placeholder="اشرح المشكلة بالتفصيل... ما هو المطلوب؟ ما هي الشروط؟"
+                    rows={4}
+                    className="input resize-none font-arabic"
+                    dir="auto"
+                  />
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">يجب أن لا يقل عن 10 أحرف</span>
+                </div>
 
                 <div>
                   <label className="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-2 block">كود البداية (اختياري)</label>
@@ -964,7 +992,7 @@ export default function SuggestPage() {
                   </select>
                   <button
                     onClick={handleSubmitChallenge}
-                    disabled={submittingChallenge || !challengeTitle.trim() || !challengeDesc.trim()}
+                    disabled={submittingChallenge || challengeTitle.trim().length < 3 || challengeDesc.trim().length < 10}
                     className="btn-primary flex-1 justify-center"
                   >
                     {submittingChallenge ? <><span className="spinner" /> جاري الإرسال...</> : "🚀 نشر التحدي"}
